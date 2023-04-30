@@ -12,11 +12,11 @@
   },
   "pluginOptions": {},
   "attributes": {
-    "coordinates": {
-      "type": "json"
+    "level": {
+      "type": "integer"
     },
-    "name": {
-      "type": "string"
+    "points": {
+      "type": "json"
     }
   }
 }

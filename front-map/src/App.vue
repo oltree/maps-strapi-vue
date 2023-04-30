@@ -16,12 +16,8 @@ export default {
 </script>
 
 <style>
-:root {
-  --app-width: 1200px;
-}
-
 .app {
-  width: var(--app-width);
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;

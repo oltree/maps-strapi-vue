@@ -13,52 +13,118 @@ const baseUrl = import.meta.env.VITE_BASE_URL;
 
 export default {
   name: 'Map',
-  async mounted() {
-    try {
-      mapboxgl.accessToken = tokenMapBox;
-      this.map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/mapbox/streets-v11',
-        center: [37.6173, 55.7558],
-        zoom: 4,
-      });
-
-      const response = await axios.get(baseUrl);
-      const markers = response?.data?.data;
-
-      markers.forEach(({ attributes }) => {
-        new mapboxgl.Marker()
-          .setLngLat(attributes.coordinates)
-          .setPopup(new mapboxgl.Popup().setHTML(`<h3>${attributes.name}</h3>`))
-          .addTo(this.map);
-      });
-
-      this.map.on('dblclick', async (e) => {
-        const { lng, lat } = e.lngLat;
-        const name = prompt('Введите название:');
-
-        if (name) {
-          new mapboxgl.Marker()
-            .setLngLat({ lng, lat })
-            .setPopup(new mapboxgl.Popup().setHTML(`<h3>${name}</h3>`))
-            .addTo(this.map);
-
-          await axios.post(baseUrl, {
-            data: { coordinates: { lng, lat }, name },
+  data() {
+    return {
+      map: null,
+      plots: [],
+    };
+  },
+  mounted() {
+    mapboxgl.accessToken = tokenMapBox;
+    this.map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/streets-v11',
+      center: [37.6173, 55.7558],
+      zoom: 10,
+    });
+    this.getPlots();
+    this.addContextMenuListener();
+  },
+  methods: {
+    async getPlots() {
+      try {
+        const response = await axios.get(baseUrl);
+        const plots = response?.data?.data;
+        plots.forEach((plot) => {
+          const polygon = {
+            type: 'Feature',
+            geometry: {
+              type: 'Polygon',
+              coordinates: [plot.attributes.points],
+            },
+            properties: { level: plot.attributes.level },
+          };
+          this.map.on('load', () => {
+            this.map.addSource(`plot-${plot.attributes.level}`, {
+              type: 'geojson',
+              data: {
+                type: 'FeatureCollection',
+                features: [polygon],
+              },
+            });
+            this.map.addLayer({
+              id: `plot-${plot.id}-layer`,
+              type: 'fill',
+              source: `plot-${plot.attributes.level}`,
+              paint: {
+                'fill-color': '#0080ff',
+                'fill-opacity': 0.5,
+              },
+            });
           });
+          this.plots.push(plot);
+        });
+      } catch (error) {
+        console.log(error);
+      }
+    },
+    addContextMenuListener() {
+      this.map.on('contextmenu', async (e) => {
+        const level = prompt('Enter level:');
+        if (level) {
+          let points = [];
+          const clickHandler = async (event) => {
+            const clickedPoint = [event.lngLat.lng, event.lngLat.lat];
+            points.push(clickedPoint);
+            if (points.length === 4) {
+              this.map.off('click', clickHandler);
+              try {
+                const response = await axios.post(baseUrl, {
+                  data: { points, level },
+                });
+                const newPlot = response?.data?.data;
+                const polygon = {
+                  type: 'Feature',
+                  geometry: {
+                    type: 'Polygon',
+                    coordinates: [newPlot.attributes.points],
+                  },
+                  properties: { level: newPlot.attributes.level },
+                };
+                this.plots.push(newPlot);
+                this.map.addSource(`plot-${newPlot.attributes.level}`, {
+                  type: 'geojson',
+                  data: {
+                    type: 'FeatureCollection',
+                    features: [polygon],
+                  },
+                });
+                this.map.addLayer({
+                  id: `plot-${newPlot.id}-layer`,
+                  type: 'fill',
+                  source: `plot-${newPlot.attributes.level}`,
+                  paint: {
+                    'fill-color': '#0080ff',
+                    'fill-opacity': 0.5,
+                  },
+                });
+              } catch (error) {
+                console.log(error);
+              }
+            }
+          };
+          this.map.on('click', clickHandler);
         }
       });
-    } catch (error) {
-      console.log(error);
-    }
+    },
   },
 };
 </script>
 
 <style>
 #map-container {
-  width: 800px;
-  height: 800px;
+  width: 1280px;
+  height: 100vh;
   display: grid;
 }
 

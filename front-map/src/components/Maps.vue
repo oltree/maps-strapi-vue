@@ -1,7 +1,5 @@
 <template>
-  <div id="map-container">
-    <div id="map"></div>
-  </div>
+  <div id="map"></div>
 </template>
 
 <script>
@@ -12,29 +10,33 @@ const tokenMapBox = import.meta.env.VITE_TOKEN_MAPBOX;
 const baseUrl = import.meta.env.VITE_BASE_URL;
 
 export default {
-  name: 'Map',
   data() {
     return {
       map: null,
       plots: [],
     };
   },
+
   mounted() {
     mapboxgl.accessToken = tokenMapBox;
     this.map = new mapboxgl.Map({
       container: 'map',
-      style: 'mapbox://styles/mapbox/streets-v11',
+      style: 'mapbox://styles/mapbox/streets-v12',
       center: [37.6173, 55.7558],
       zoom: 10,
     });
-    this.getPlots();
-    this.addContextMenuListener();
+    this.map.on('load', () => {
+      this.getPlots();
+      this.addPolygon();
+      this.removePolygon();
+    });
   },
   methods: {
     async getPlots() {
       try {
         const response = await axios.get(baseUrl);
         const plots = response?.data?.data;
+
         plots.forEach((plot) => {
           const polygon = {
             type: 'Feature',
@@ -44,40 +46,66 @@ export default {
             },
             properties: { level: plot.attributes.level },
           };
-          this.map.on('load', () => {
-            this.map.addSource(`plot-${plot.attributes.level}`, {
-              type: 'geojson',
-              data: {
-                type: 'FeatureCollection',
-                features: [polygon],
-              },
-            });
-            this.map.addLayer({
-              id: `plot-${plot.id}-layer`,
-              type: 'fill',
-              source: `plot-${plot.attributes.level}`,
-              paint: {
-                'fill-color': '#0080ff',
-                'fill-opacity': 0.5,
-              },
-            });
+          this.map.addSource(`plot-${plot.id}`, {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: [polygon],
+            },
+          });
+          this.map.addLayer({
+            id: `plot-${plot.id}-layer`,
+            type: 'fill',
+            source: `plot-${plot.id}`,
+            paint: {
+              'fill-color': '#0080ff',
+              'fill-opacity': 0.5,
+            },
           });
           this.plots.push(plot);
         });
-      } catch (error) {
-        console.log(error);
+      } catch (e) {
+        console.log(e);
       }
     },
-    addContextMenuListener() {
-      this.map.on('contextmenu', async (e) => {
-        const level = prompt('Enter level:');
+    addPolygon() {
+      this.map.on('dblclick', async (e) => {
+        const isCreatePolygon = confirm('Create a new polygon?');
+        const level = isCreatePolygon && prompt('Enter level:', 0);
+
         if (level) {
-          let points = [];
-          const clickHandler = async (event) => {
-            const clickedPoint = [event.lngLat.lng, event.lngLat.lat];
+          const points = [];
+          const clickHandler = async (e) => {
+            const clickedPoint = [e.lngLat.lng, e.lngLat.lat];
             points.push(clickedPoint);
+
+            this.map.addLayer({
+              id: `point-${points.length}`,
+              type: 'circle',
+              source: {
+                type: 'geojson',
+                data: {
+                  type: 'FeatureCollection',
+                  features: [
+                    {
+                      type: 'Feature',
+                      geometry: {
+                        type: 'Point',
+                        coordinates: clickedPoint,
+                      },
+                    },
+                  ],
+                },
+              },
+              paint: {
+                'circle-radius': 5,
+                'circle-color': '#0080ff',
+              },
+            });
+
             if (points.length === 4) {
               this.map.off('click', clickHandler);
+
               try {
                 const response = await axios.post(baseUrl, {
                   data: { points, level },
@@ -91,8 +119,7 @@ export default {
                   },
                   properties: { level: newPlot.attributes.level },
                 };
-                this.plots.push(newPlot);
-                this.map.addSource(`plot-${newPlot.attributes.level}`, {
+                this.map.addSource(`plot-${newPlot.id}`, {
                   type: 'geojson',
                   data: {
                     type: 'FeatureCollection',
@@ -102,18 +129,48 @@ export default {
                 this.map.addLayer({
                   id: `plot-${newPlot.id}-layer`,
                   type: 'fill',
-                  source: `plot-${newPlot.attributes.level}`,
+                  source: `plot-${newPlot.id}`,
                   paint: {
                     'fill-color': '#0080ff',
                     'fill-opacity': 0.5,
                   },
                 });
-              } catch (error) {
-                console.log(error);
+                this.plots.push(newPlot);
+              } catch (e) {
+                console.log(e);
+              }
+              for (let i = 1; i <= 4; i++) {
+                this.map.removeLayer(`point-${i}`);
               }
             }
           };
           this.map.on('click', clickHandler);
+        }
+      });
+    },
+    removePolygon() {
+      this.map.on('contextmenu', async (e) => {
+        const clickedFeature = this.map.queryRenderedFeatures(e.point, {
+          layers: this.plots.map((plot) => `plot-${plot.id}-layer`),
+        })[0];
+
+        if (clickedFeature) {
+          const id = clickedFeature.layer.id.split('-')[1];
+          const isDeletePolygon = confirm(`Delete polygon?`);
+
+          if (isDeletePolygon) {
+            const plotIndex = this.plots.findIndex((plot) => plot.id == id);
+            const plot = this.plots[plotIndex];
+            this.plots.splice(plotIndex, 1);
+
+            this.map.removeLayer(`plot-${plot.id}-layer`);
+
+            try {
+              await axios.delete(`${baseUrl}/${plot.id}`);
+            } catch (e) {
+              console.log(e);
+            }
+          }
         }
       });
     },
@@ -122,23 +179,10 @@ export default {
 </script>
 
 <style>
-#map-container {
-  width: 1280px;
-  height: 100vh;
-  display: grid;
-}
-
 #map {
-  grid-column: 1;
-  grid-row: 1;
-  width: 100%;
-  height: 100%;
-}
-
-.mapboxgl-popup-content {
-  padding: 20px;
-  color: #000;
-  font-size: 16px;
-  text-transform: capitalize;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1200px;
 }
 </style>

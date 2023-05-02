@@ -80,7 +80,7 @@ export default {
             points.push(clickedPoint);
 
             this.map.addLayer({
-              id: `point-${points.length}`,
+              id: `point-${e.lngLat.lng}`,
               type: 'circle',
               source: {
                 type: 'geojson',
@@ -138,9 +138,6 @@ export default {
                 this.plots.push(newPlot);
               } catch (e) {
                 console.log(e);
-              }
-              for (let i = 1; i <= 4; i++) {
-                this.map.removeLayer(`point-${i}`);
               }
             }
           };
